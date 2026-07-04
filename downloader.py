@@ -80,7 +80,7 @@ async def download_torrent(torrent_source: str):
                 continue
 
             # Check if there is an error in the output
-            if "download failed" in line.lower() or "exception caught" in line.lower():
+            if "download failed" in line.lower():
                 yield {
                     "status": "failed",
                     "error": line
