@@ -18,6 +18,7 @@ app = FastAPI(title="Torrent Telegram Downloader Web App")
 # Global in-memory storage for tasks
 # task_id -> dict
 tasks = {}
+active_tasks = {}
 
 class ConfigUpdate(BaseModel):
     api_id: str
@@ -53,7 +54,11 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
     try:
         # 1. Download phase
         async for progress in download_torrent(torrent_source):
-            if progress["status"] == "metadata":
+            if progress["status"] == "started":
+                task_dir = progress["task_dir"]
+                task["task_dir"] = str(task_dir)
+                continue
+            elif progress["status"] == "metadata":
                 task.update({
                     "status": "metadata",
                     "speed": progress["speed"],
@@ -171,12 +176,21 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
         })
         clean_up_task(task_dir, temp_torrent_path)
 
+    except asyncio.CancelledError:
+        print(f"Task {task_id} was cancelled.")
+        task.update({
+            "status": "failed",
+            "error": "Vazifa bekor qilindi."
+        })
+        clean_up_task(task_dir, temp_torrent_path)
     except Exception as e:
         task.update({
             "status": "failed",
             "error": f"Kutilmagan xatolik yuz berdi: {str(e)}"
         })
         clean_up_task(task_dir, temp_torrent_path)
+    finally:
+        active_tasks.pop(task_id, None)
 
 @app.get("/api/config")
 def get_web_config():
@@ -281,13 +295,62 @@ async def start_download(
         "eta": "N/A",
         "current_file": "",
         "error": "",
+        "task_dir": None,
+        "temp_torrent_path": str(temp_torrent_path) if temp_torrent_path else None,
         "added_at": time.time()
     }
 
     # Start background execution
-    asyncio.create_task(run_download_and_upload(task_id, torrent_source, temp_torrent_path))
+    task_obj = asyncio.create_task(run_download_and_upload(task_id, torrent_source, temp_torrent_path))
+    active_tasks[task_id] = task_obj
 
     return {"status": "success", "task_id": task_id, "message": "Yuklash vazifasi qo'shildi!"}
+
+@app.get("/api/disk-usage")
+def get_disk_usage():
+    """
+    Returns the disk usage details of the root directory.
+    """
+    try:
+        total, used, free = shutil.disk_usage("/")
+        return {
+            "total": f"{total / (1024**3):.1f} GB",
+            "used": f"{used / (1024**3):.1f} GB",
+            "free": f"{free / (1024**3):.1f} GB",
+            "percent": round((used / total) * 100, 1)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Disk holatini aniqlashda xato: {str(e)}")
+
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: str):
+    """
+    Cancels a running task and cleans up its files.
+    """
+    if task_id not in tasks:
+        raise HTTPException(status_code=404, detail="Vazifa topilmadi.")
+        
+    task_info = tasks[task_id]
+    
+    # Cancel running async task
+    if task_id in active_tasks:
+        print(f"Cancelling active task {task_id}")
+        active_tasks[task_id].cancel()
+        
+    # Manual clean up of files just in case
+    task_dir_str = task_info.get("task_dir")
+    temp_torrent_str = task_info.get("temp_torrent_path")
+    
+    task_dir = Path(task_dir_str) if task_dir_str else None
+    temp_torrent = Path(temp_torrent_str) if temp_torrent_str else None
+    
+    clean_up_task(task_dir, temp_torrent)
+    
+    # Remove from lists
+    tasks.pop(task_id, None)
+    active_tasks.pop(task_id, None)
+    
+    return {"status": "success", "message": "Vazifa bekor qilindi va fayllar o'chirildi!"}
 
 # Ensure static folder exists
 static_dir = Path("static")

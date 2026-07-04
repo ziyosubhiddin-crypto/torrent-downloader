@@ -112,6 +112,7 @@ async def download_torrent(torrent_source: str):
     ]
 
     print(f"Starting aria2c download in: {task_dir}")
+    yield {"status": "started", "task_dir": task_dir}
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -160,11 +161,14 @@ async def download_torrent(torrent_source: str):
             }
 
     except Exception as e:
-        try:
-            process.kill()
-        except:
-            pass
         yield {
             "status": "failed",
             "error": str(e)
         }
+    finally:
+        try:
+            if process.returncode is None:
+                print("Force killing active aria2c process...")
+                process.kill()
+        except Exception:
+            pass

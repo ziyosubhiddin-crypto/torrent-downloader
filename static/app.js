@@ -39,6 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadConfig();
     startPolling();
     setupEventListeners();
+    refreshDiskUsage();
+    setInterval(refreshDiskUsage, 5000);
 });
 
 // Event Listeners
@@ -329,7 +331,17 @@ async function refreshTasks() {
                 <div class="task-item" id="${task.id}">
                     <div class="task-top">
                         <span class="task-title" title="${task.name}">${task.name}</span>
-                        <span class="task-badge ${statusClass}">${statusText}</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span class="task-badge ${statusClass}">${statusText}</span>
+                            <button class="delete-task-btn" onclick="deleteTask('${task.id}')" title="Vazifani o'chirish" style="background: none; border: none; padding: 4px; color: var(--color-text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color 0.2s;">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="pointer-events: none;">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                     
                     ${task.status === 'uploading' && task.current_file ? `
@@ -359,3 +371,42 @@ async function refreshTasks() {
         console.error('Error refreshing tasks:', error);
     }
 }
+
+// Fetch and display disk usage status
+async function refreshDiskUsage() {
+    try {
+        const response = await fetch('/api/disk-usage');
+        const data = await response.json();
+        
+        document.getElementById('disk-free-val').innerText = `${data.free} bo'sh`;
+        document.getElementById('disk-pct-val').innerText = `${data.percent}%`;
+        document.getElementById('disk-progress-bar').style.width = `${data.percent}%`;
+    } catch (error) {
+        console.error('Error fetching disk usage:', error);
+    }
+}
+
+// Delete task manually and clean up
+async function deleteTask(taskId) {
+    if (!confirm("Haqiqatan ham bu vazifani bekor qilmoqchimisiz va yuklangan barcha fayllarni serverdan o'chirib tashlamoqchimisiz?")) {
+        return;
+    }
+    try {
+        const response = await fetch(`/api/tasks/${taskId}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        if (response.ok) {
+            showToast('Vazifa bekor qilindi va fayllar butunlay o\'chirildi.');
+            refreshTasks();
+            refreshDiskUsage();
+        } else {
+            showToast(data.detail || 'O\'chirishda xatolik yuz berdi.', true);
+        }
+    } catch (error) {
+        showToast('Serverga ulanishda xato.', true);
+    }
+}
+
+// Expose deleteTask to global window object for inline onclick triggers
+window.deleteTask = deleteTask;

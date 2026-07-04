@@ -658,5 +658,9 @@ input[type="password"]:focus {
     }
     .form-group.full-width {
         grid-column: span 1;
-    }
+     }
+}
+
+.delete-task-btn:hover {
+    color: var(--color-error) !important;
 }

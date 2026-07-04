@@ -48,6 +48,19 @@
                 <div class="status-label">Telegram Ulanishi:</div>
                 <div class="status-badge error" id="tg-connection-status">Sozlanmagan</div>
             </div>
+            
+            <div class="status-panel" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                <div class="status-label">Disk Xotirasi (Bo'sh):</div>
+                <div class="disk-usage" style="margin-top: 8px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--color-text-muted); margin-bottom: 6px;">
+                        <span id="disk-free-val">O'lchanmoqda...</span>
+                        <span id="disk-pct-val">0%</span>
+                    </div>
+                    <div style="height: 6px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; position: relative;">
+                        <div id="disk-progress-bar" style="width: 0%; height: 100%; background: var(--gradient-accent); border-radius: 4px; transition: width 0.5s ease;"></div>
+                    </div>
+                </div>
+            </div>
         </aside>
 
         <!-- Main Content Area -->
