@@ -3,7 +3,7 @@ import re
 import os
 from pathlib import Path
 import uuid
-from config import DOWNLOAD_PATH
+import config
 
 # Regex to parse aria2c progress output:
 # E.g. [#482b1d 1.1MiB/15MiB(7%) CN:3 SPD:1.1MiB ETA:12s]
@@ -25,8 +25,9 @@ async def download_torrent(torrent_source: str):
     On failure, the last yielded dict contains status='failed' and an error message.
     """
     # Create an isolated task directory
+    cfg = config.get_config()
     task_id = str(uuid.uuid4())[:8]
-    task_dir = DOWNLOAD_PATH / task_id
+    task_dir = cfg["DOWNLOAD_PATH"] / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
