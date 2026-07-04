@@ -57,8 +57,8 @@ async def download_torrent(torrent_source: str):
         "--summary-interval=1",
         f"--dir={task_dir}",
         "--console-log-level=notice",
-        "--enable-dht=false",      # Disable DHT to avoid the DHT cache warning
-        "--enable-dht6=false",
+        "--enable-dht=true",
+        "--enable-dht6=true",
         torrent_source
     ]
 
