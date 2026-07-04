@@ -1,0 +1,21 @@
+# Virtual environment
+.venv/
+env/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables (secret tokens)
+.env
+
+# Temporary download files
+downloads/
+temp_torrents/
+
+# Pyrogram session files
+*.session
+*.session-journal

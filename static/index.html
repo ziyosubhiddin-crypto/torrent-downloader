@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torrent Cloud Downloader</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="glow-sphere sphere-1"></div>
+    <div class="glow-sphere sphere-2"></div>
+
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                </svg>
+                <h2>Torrent Cloud</h2>
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-item active" id="tab-dashboard">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="9" rx="1"/>
+                        <rect x="14" y="3" width="7" height="5" rx="1"/>
+                        <rect x="14" y="12" width="7" height="9" rx="1"/>
+                        <rect x="3" y="16" width="7" height="5" rx="1"/>
+                    </svg>
+                    Boshqaruv
+                </button>
+                <button class="nav-item" id="tab-settings">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                    Sozlamalar
+                </button>
+            </nav>
+            
+            <div class="status-panel">
+                <div class="status-label">Telegram Ulanishi:</div>
+                <div class="status-badge error" id="tg-connection-status">Sozlanmagan</div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="content-header">
+                <div>
+                    <h1 id="page-title">Yuklash Paneli</h1>
+                    <p class="subtitle" id="page-subtitle">Torrent va Magnet havolalarni yuklab olib, Telegram kanalga yuboring</p>
+                </div>
+            </header>
+
+            <!-- Dashboard View -->
+            <section class="view-section" id="view-dashboard">
+                <!-- Download Input Card -->
+                <div class="card glass-card input-card">
+                    <h3 class="card-title">Yangi Vazifa Qo'shish</h3>
+                    
+                    <form id="download-form">
+                        <div class="form-group">
+                            <label for="magnet-input">Magnet Havola (URL)</label>
+                            <input type="text" id="magnet-input" placeholder="magnet:?xt=urn:btih:..." autocomplete="off">
+                        </div>
+                        
+                        <div class="divider"><span>Yoki</span></div>
+                        
+                        <div class="form-group">
+                            <label>Torrent Fayli (.torrent)</label>
+                            <div class="file-upload-wrapper">
+                                <input type="file" id="torrent-file" accept=".torrent" hidden>
+                                <div class="file-upload-box" id="file-dropzone">
+                                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                                    </svg>
+                                    <span class="upload-text">Faylni shu yerga tashlang yoki tanlang</span>
+                                    <span class="file-name-display" id="selected-file-name"></span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary" id="btn-submit">
+                            <span id="btn-text">Yuklashni Boshlash</span>
+                            <div class="spinner" id="btn-spinner" style="display: none;"></div>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Active & History Tasks Card -->
+                <div class="tasks-container">
+                    <div class="tasks-header">
+                        <h3 class="card-title">Yuklash Jarayonlari</h3>
+                        <span class="task-count" id="task-count">0 vazifa</span>
+                    </div>
+                    
+                    <div class="tasks-list" id="tasks-list">
+                        <!-- Tasks dynamically injected here -->
+                        <div class="no-tasks-state">
+                            <svg class="no-tasks-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M8 12h8M12 8v8"/>
+                            </svg>
+                            <p>Hozircha vazifalar yo'q. Magnet havola yoki torrent yuboring.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings View -->
+            <section class="view-section" id="view-settings" style="display: none;">
+                <div class="card glass-card settings-card">
+                    <h3 class="card-title">Telegram API Sozlamalari</h3>
+                    <p class="card-desc">Telegram kanaliga fayl yuklash uchun bot sozlamalarini to'ldiring.</p>
+                    
+                    <form id="settings-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="api-id">API ID (my.telegram.org dan)</label>
+                                <input type="text" id="api-id" placeholder="Masalan: 1234567" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="api-hash">API HASH (my.telegram.org dan)</label>
+                                <input type="text" id="api-hash" placeholder="Masalan: abcd1234efgh5678..." required>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="bot-token">BOT TOKEN (@BotFather dan)</label>
+                                <input type="password" id="bot-token" placeholder="Masalan: 123456789:ABCdefGhIJKlmNo..." required>
+                            </div>
+                            <div class="form-group">
+                                <label for="channel-username">Kanal Usernamer yoki ID (Post yuboriladigan joy)</label>
+                                <input type="text" id="channel-username" placeholder="Masalan: @kinolarimmani8" required>
+                            </div>
+                        </div>
+                        
+                        <div class="alert-box info-alert">
+                            <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="16" x2="12" y2="12"/>
+                                <line x1="12" y1="8" x2="12.01" y2="8"/>
+                            </svg>
+                            <div class="alert-content">
+                                <strong>Diqqat!</strong> Bot kanalingizda <strong>Administrator</strong> bo'lishi va <strong>Xabarlar yuborish (Post Messages)</strong> huquqiga ega bo'lishi shart!
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" id="btn-save-settings">
+                            <span>Sozlamalarni Saqlash</span>
+                        </button>
+                    </form>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Notification Toast -->
+    <div class="toast" id="toast-message"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
