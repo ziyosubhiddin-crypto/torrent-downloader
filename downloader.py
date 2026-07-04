@@ -5,17 +5,66 @@ from pathlib import Path
 import uuid
 import config
 
-# Regex to parse aria2c progress output:
-# E.g. [#482b1d 1.1MiB/15MiB(7%) CN:3 SPD:1.1MiB ETA:12s]
-PROGRESS_REGEX = re.compile(
-    r'\[#\w+\s+(?P<downloaded>[^/]+)/(?P<total>[^\(]+)\((?P<percent>\d+)%\)\s+CN:\d+\s+SPD:(?P<speed>[^\s]+)\s+ETA:(?P<eta>[^\]\s]+)'
-)
-
-# Regex to parse metadata download output (no percentage, total is 0B/0B or similar)
-# E.g. [#482b1d 0B/0B CN:1 SPD:5.2KiB]
-METADATA_REGEX = re.compile(
-    r'\[#\w+\s+0B/0B\s+CN:\d+\s+SPD:(?P<speed>[^\s\]]+)'
-)
+def parse_aria2_progress(line: str):
+    """
+    Robustly parses aria2c progress outputs like:
+    [#482b1d 1.1MiB/15MiB(7%) CN:3 SPD:1.1MiB ETA:12s]
+    [#2b7e7e 0B/1.0GiB(0%) CN:0 SD:0 DL:0B]
+    """
+    if not (line.startswith("[#") and "%" in line):
+        return None
+        
+    try:
+        content = line.strip("[]")
+        parts = content.split()
+        if len(parts) < 3:
+            return None
+            
+        # Size info is in the second part: E.g. 1.1MiB/15MiB(7%)
+        size_part = parts[1]
+        if "/" not in size_part:
+            return None
+            
+        downloaded, rest = size_part.split("/", 1)
+        if "(" not in rest or ")" not in rest:
+            return None
+            
+        total, percent_part = rest.split("(", 1)
+        percent_str = percent_part.rstrip(")%")
+        percent = int(percent_str) if percent_str.isdigit() else 0
+        
+        # Key-value parse for rest of fields
+        kv = {}
+        for p in parts[2:]:
+            if ":" in p:
+                k, v = p.split(":", 1)
+                kv[k] = v
+                
+        # Handle speed field which can be SPD or DL
+        speed = "0 B/s"
+        if "SPD" in kv:
+            speed = kv["SPD"]
+            if not speed.lower().endswith("/s"):
+                speed += "/s"
+        elif "DL" in kv:
+            speed = kv["DL"]
+            if not speed.lower().endswith("/s"):
+                speed += "/s"
+                
+        eta = "N/A"
+        if "ETA" in kv:
+            eta = kv["ETA"]
+            
+        return {
+            "status": "downloading",
+            "percent": percent,
+            "speed": speed,
+            "downloaded": downloaded,
+            "total": total,
+            "eta": eta
+        }
+    except Exception:
+        return None
 
 async def read_lines(stream):
     """
@@ -74,29 +123,9 @@ async def download_torrent(torrent_source: str):
             print(f"[aria2c] {line}")
 
             # Check for regular download progress
-            match = PROGRESS_REGEX.search(line)
-            if match:
-                yield {
-                    "status": "downloading",
-                    "percent": int(match.group("percent")),
-                    "speed": match.group("speed") + "/s",
-                    "downloaded": match.group("downloaded"),
-                    "total": match.group("total"),
-                    "eta": match.group("eta")
-                }
-                continue
-                
-            # Check for metadata downloading (common in magnet links at start)
-            meta_match = METADATA_REGEX.search(line)
-            if meta_match:
-                yield {
-                    "status": "metadata",
-                    "percent": 0,
-                    "speed": meta_match.group("speed") + "/s",
-                    "downloaded": "0B",
-                    "total": "0B",
-                    "eta": "N/A"
-                }
+            progress_data = parse_aria2_progress(line)
+            if progress_data:
+                yield progress_data
                 continue
 
             # Check if there is an error in the output
