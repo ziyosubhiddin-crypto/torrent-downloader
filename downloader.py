@@ -17,6 +17,27 @@ METADATA_REGEX = re.compile(
     r'\[#\w+\s+0B/0B\s+CN:\d+\s+SPD:(?P<speed>[^\s\]]+)'
 )
 
+async def read_lines(stream):
+    """
+    Read from stream splitting on both \n and \r (for aria2c carriage-return progress lines).
+    """
+    buf = b""
+    while True:
+        chunk = await stream.read(512)
+        if not chunk:
+            if buf:
+                yield buf.decode("utf-8", errors="ignore").strip()
+            break
+        buf += chunk
+        # Split on both \r and \n
+        parts = re.split(b'[\r\n]+', buf)
+        # Last part may be incomplete — keep it in the buffer
+        buf = parts[-1]
+        for part in parts[:-1]:
+            line = part.decode("utf-8", errors="ignore").strip()
+            if line:
+                yield line
+
 async def download_torrent(torrent_source: str):
     """
     Downloads a torrent file or magnet link asynchronously using aria2c in a separate folder.
@@ -36,6 +57,8 @@ async def download_torrent(torrent_source: str):
         "--summary-interval=1",
         f"--dir={task_dir}",
         "--console-log-level=notice",
+        "--enable-dht=false",      # Disable DHT to avoid the DHT cache warning
+        "--enable-dht6=false",
         torrent_source
     ]
 
@@ -47,12 +70,9 @@ async def download_torrent(torrent_source: str):
     )
 
     try:
-        while True:
-            line_bytes = await process.stdout.readline()
-            if not line_bytes:
-                break
-            line = line_bytes.decode("utf-8", errors="ignore").strip()
-            
+        async for line in read_lines(process.stdout):
+            print(f"[aria2c] {line}")
+
             # Check for regular download progress
             match = PROGRESS_REGEX.search(line)
             if match:
@@ -80,11 +100,13 @@ async def download_torrent(torrent_source: str):
                 continue
 
             # Check if there is an error in the output
-            if "download failed" in line.lower():
-                yield {
-                    "status": "failed",
-                    "error": line
-                }
+            if "download failed" in line.lower() or "error" in line.lower():
+                # Only fail on real errors, not warnings
+                if "result" in line.lower() or "gid" in line.lower():
+                    yield {
+                        "status": "failed",
+                        "error": line
+                    }
 
         return_code = await process.wait()
         
