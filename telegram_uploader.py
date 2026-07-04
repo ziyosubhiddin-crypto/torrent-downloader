@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 from pyrogram import Client
+from pyrogram.errors import FloodWait
 import config
 
 # Global client cache
@@ -48,6 +49,7 @@ async def upload_file_to_telegram(file_path: Path, progress_callback=None):
     """
     Uploads a file (as video or general document) to the configured Telegram channel.
     Calls progress_callback(current_bytes, total_bytes) periodically if provided.
+    Includes auto-retry loop for Pyrogram FloodWait rate limits.
     """
     client = get_telegram_client()
     if not client:
@@ -73,19 +75,32 @@ async def upload_file_to_telegram(file_path: Path, progress_callback=None):
             else:
                 progress_callback(current, total)
 
-    if ext in video_extensions:
-        print(f"Uploading {file_name} as Video...")
-        await client.send_video(
-            chat_id=channel,
-            video=str(file_path),
-            caption=f"🎬 **{file_name}**\n\n@kinolarimmani8 kanali uchun maxsus yuklandi.",
-            progress=pyrogram_progress_wrapper
-        )
-    else:
-        print(f"Uploading {file_name} as Document...")
-        await client.send_document(
-            chat_id=channel,
-            document=str(file_path),
-            caption=f"📁 **{file_name}**\n\n@kinolarimmani8 kanali uchun maxsus yuklandi.",
-            progress=pyrogram_progress_wrapper
-        )
+    attempts = 5
+    for attempt in range(attempts):
+        try:
+            if ext in video_extensions:
+                print(f"Uploading {file_name} as Video (Attempt {attempt+1}/{attempts})...")
+                await client.send_video(
+                    chat_id=channel,
+                    video=str(file_path),
+                    caption=f"🎬 **{file_name}**\n\n{channel} kanali uchun maxsus yuklandi.",
+                    progress=pyrogram_progress_wrapper
+                )
+            else:
+                print(f"Uploading {file_name} as Document (Attempt {attempt+1}/{attempts})...")
+                await client.send_document(
+                    chat_id=channel,
+                    document=str(file_path),
+                    caption=f"📁 **{file_name}**\n\n{channel} kanali uchun maxsus yuklandi.",
+                    progress=pyrogram_progress_wrapper
+                )
+            print(f"Successfully uploaded {file_name}")
+            break # Success, exit retry loop
+        except FloodWait as e:
+            # e.value contains the number of seconds required to wait
+            wait_time = e.value + 3
+            print(f"Telegram rate limit hit (FloodWait). Waiting for {wait_time} seconds before retrying...")
+            await asyncio.sleep(wait_time)
+            if attempt == attempts - 1:
+                # If it was the last attempt, raise the exception
+                raise
