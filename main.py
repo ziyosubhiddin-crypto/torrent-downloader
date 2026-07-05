@@ -78,10 +78,13 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
     """
     Background worker that runs the aria2c download and Telegram upload.
     """
+    print(f"DEBUG: run_download_and_upload started for task_id={task_id}, source={torrent_source}")
     task = tasks.get(task_id)
     if not task:
+        print(f"DEBUG: task {task_id} not found in tasks dict!")
         return
 
+    print(f"DEBUG: Task details: {task}")
     task_dir = None
     downloaded_files = []
     
