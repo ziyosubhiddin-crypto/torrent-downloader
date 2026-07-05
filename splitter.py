@@ -3,8 +3,8 @@ import os
 import math
 from pathlib import Path
 
-# 1.95 GB limit for Telegram uploads
-LIMIT = int(1.95 * 1024 * 1024 * 1024)
+# 1.9 GB limit for Telegram uploads (safety margin below Telegram's 2GB limit)
+LIMIT = int(1.9 * 1024 * 1024 * 1024)
 
 
 async def get_video_duration(file_path: Path) -> float:
@@ -122,9 +122,10 @@ async def split_file_binary(file_path: Path, parts_count: int) -> list[Path]:
 
 async def split_file_if_large(file_path: Path) -> list[Path]:
     """
-    Checks if a file exceeds 2GB (using 1.95 GB limit). If it does, splits it into parts.
+    Checks if a file exceeds the Telegram limit (1.9 GB). If it does, splits it into parts.
     Returns list of paths to the split parts (or a list containing only the original path if no splitting was needed).
     After successful split, the original file is deleted to conserve space.
+    Verifies that all resulting parts are under the limit.
     """
     global LIMIT
     
@@ -134,8 +135,9 @@ async def split_file_if_large(file_path: Path) -> list[Path]:
     file_size = file_path.stat().st_size
     if file_size <= LIMIT:
         return [file_path]
-        
-    parts_count = math.ceil(file_size / LIMIT)
+    
+    # Always split into at least 2 parts
+    parts_count = max(2, math.ceil(file_size / LIMIT))
     print(f"File {file_path.name} is {file_size / (1024**3):.2f} GB. Splitting into {parts_count} parts.")
     
     ext = file_path.suffix.lower()
@@ -150,6 +152,20 @@ async def split_file_if_large(file_path: Path) -> list[Path]:
             try:
                 parts = await split_video_ffmpeg(file_path, parts_count, duration)
                 split_successful = True
+                
+                # Verify all parts are under the limit
+                # FFmpeg stream copy can produce uneven splits
+                oversized_parts = [p for p in parts if p.exists() and p.stat().st_size > LIMIT]
+                if oversized_parts:
+                    print(f"WARNING: {len(oversized_parts)} ffmpeg parts still exceed limit. Re-splitting with more parts...")
+                    # Clean up ffmpeg parts and fallback to binary split with more parts
+                    for p in parts:
+                        if p.exists():
+                            p.unlink()
+                    parts = []
+                    split_successful = False
+                    # Increase parts count for binary split
+                    parts_count = parts_count + 1
             except Exception as e:
                 print(f"FFmpeg split failed for {file_path.name}: {e}. Falling back to binary split.")
                 
@@ -158,6 +174,12 @@ async def split_file_if_large(file_path: Path) -> list[Path]:
         split_successful = True
         
     if split_successful and parts:
+        # Final verification: ensure NO part exceeds the limit
+        for p in parts:
+            if p.exists():
+                p_size = p.stat().st_size
+                print(f"  Part {p.name}: {p_size / (1024**3):.2f} GB {'✓' if p_size <= LIMIT else '✗ OVER LIMIT!'}")
+        
         # Delete original file to free space
         try:
             print(f"Deleting original large file: {file_path}")

@@ -153,7 +153,7 @@ async def handle_new_torrent(client: Client, message: Message):
             # Split if large
             from splitter import split_file_if_large
             try:
-                if file_path.stat().st_size > int(1.95 * 1024 * 1024 * 1024):
+                if file_path.stat().st_size > int(1.9 * 1024 * 1024 * 1024):
                     await status_msg.edit_text(f"✂️ **Katta fayl aniqlandi.** Bo'laklash jarayoni boshlanmoqda...")
                 split_files = await split_file_if_large(file_path)
             except Exception as e:

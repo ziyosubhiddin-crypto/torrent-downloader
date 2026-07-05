@@ -51,6 +51,15 @@ async def upload_file_to_telegram(file_path: Path, progress_callback=None):
     Calls progress_callback(current_bytes, total_bytes) periodically if provided.
     Includes auto-retry loop for Pyrogram FloodWait rate limits.
     """
+    # Pre-upload size check (Telegram bot limit is 2GB)
+    MAX_TELEGRAM_SIZE = int(2 * 1024 * 1024 * 1024)  # 2 GB
+    file_size = file_path.stat().st_size
+    if file_size >= MAX_TELEGRAM_SIZE:
+        raise ValueError(
+            f"Fayl hajmi {file_size / (1024**3):.2f} GB - Telegram limiti 2GB. "
+            f"Fayl to'g'ri bo'linmagan bo'lishi mumkin."
+        )
+    
     client = get_telegram_client()
     if not client:
         raise ValueError("Telegram bot sozlamalari noto'g'ri yoki kiritilmagan!")
