@@ -149,7 +149,6 @@ async def download_torrent(torrent_source: str):
         "--bt-enable-lpd=true",
         "--enable-peer-exchange=true",
         "--bt-max-peers=120",
-        "--bt-max-connection=80",
         "--max-connection-per-server=16",
         "--split=16",
         "--min-split-size=1M",
