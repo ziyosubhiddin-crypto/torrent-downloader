@@ -5,6 +5,40 @@ from pathlib import Path
 import uuid
 import config
 
+TRACKERS_URL = "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt"
+
+FALLBACK_TRACKERS = [
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.coppersurfer.tk:6969/announce",
+    "udp://tracker.leechers-paradise.org:6969/announce",
+    "udp://tracker.internetwarriors.net:1337/announce",
+    "udp://opentracker.i2p.rocks:6969/announce",
+    "udp://tracker.openbittorrent.com:6969/announce",
+    "udp://open.demonii.com:1337/announce",
+    "http://tracker.ipv6tracker.ru:80/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://explodie.org:6969/announce"
+]
+
+async def fetch_trackers():
+    try:
+        # Use curl which is native to Linux VPS to fetch trackers asynchronously without additional pip packages
+        process = await asyncio.create_subprocess_exec(
+            "curl", "-s", "--max-time", "3", TRACKERS_URL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        stdout, _ = await process.communicate()
+        if process.returncode == 0:
+            text = stdout.decode("utf-8", errors="ignore")
+            trackers = [line.strip() for line in text.split("\n") if line.strip()]
+            if trackers:
+                return trackers
+    except Exception as e:
+        print(f"Error fetching live trackers: {e}. Using fallback trackers.")
+    return FALLBACK_TRACKERS
+
 def parse_aria2_progress(line: str):
     """
     Robustly parses aria2c progress outputs like:
@@ -100,6 +134,10 @@ async def download_torrent(torrent_source: str):
     task_dir = cfg["DOWNLOAD_PATH"] / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
 
+    # Fetch optimal public trackers to discover more peers instantly
+    trackers = await fetch_trackers()
+    trackers_str = ",".join(trackers)
+
     cmd = [
         "aria2c",
         "--seed-time=0",
@@ -108,6 +146,17 @@ async def download_torrent(torrent_source: str):
         "--console-log-level=notice",
         "--enable-dht=true",
         "--enable-dht6=true",
+        "--bt-enable-lpd=true",
+        "--enable-peer-exchange=true",
+        "--bt-max-peers=120",
+        "--bt-max-connection=80",
+        "--max-connection-per-server=16",
+        "--split=16",
+        "--min-split-size=1M",
+        "--listen-port=6881-6999",
+        "--disk-cache=64M",
+        "--file-allocation=none",
+        f"--bt-tracker={trackers_str}",
         torrent_source
     ]
 
