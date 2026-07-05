@@ -140,70 +140,80 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
             clean_up_task(task_dir, temp_torrent_path)
             return
 
+        # Select the single largest file from downloaded files
+        if downloaded_files:
+            largest_file = max(downloaded_files, key=lambda p: p.stat().st_size if p.exists() else 0)
+            downloaded_files = [largest_file]
+
         total_files = len(downloaded_files)
         for index, file_path in enumerate(downloaded_files, start=1):
             file_name = file_path.name
-            file_size = os.path.getsize(file_path)
-            file_size_gb = file_size / (1024 * 1024 * 1024)
             
-            # Update current file state
-            update_task_state(task_id, {
-                "status": "uploading",
-                "current_file": f"({index}/{total_files}) {file_name}",
-                "percent": 0,
-                "speed": "0 B/s",
-                "downloaded": "0 MB",
-                "total": f"{file_size / (1024*1024):.1f} MB",
-                "eta": "N/A"
-            }, save_to_disk=True)
-            
-            if file_size_gb > 2.0:
-                print(f"Skipping {file_name} because it exceeds the 2GB limit.")
-                # We record this warning in the task but keep going for other files
-                update_task_state(task_id, {
-                    "status": "warning",
-                    "error": f"Fayl hajmi 2GB dan katta: {file_name} (Yuklab bo'lmadi)"
-                }, save_to_disk=True)
-                await asyncio.sleep(3) # Wait a bit so user can read warning
-                continue
-                
-            start_time = time.time()
-            last_update = 0
-            
-            async def upload_progress(current, total):
-                nonlocal last_update
-                now = time.time()
-                # Throttle state updates
-                if now - last_update < 1.5:
-                    return
-                last_update = now
-                
-                percent = (current * 100) / total
-                elapsed = now - start_time
-                speed = current / elapsed if elapsed > 0 else 0
-                
-                if speed < 1024:
-                    speed_str = f"{speed:.1f} B/s"
-                elif speed < 1024 * 1024:
-                    speed_str = f"{speed / 1024:.1f} KB/s"
-                else:
-                    speed_str = f"{speed / (1024 * 1024):.1f} MB/s"
-                    
-                update_task_state(task_id, {
-                    "percent": round(percent, 1),
-                    "speed": speed_str,
-                    "downloaded": f"{current / (1024 * 1024):.1f} MB",
-                }, save_to_disk=False) # Don't write to disk for every upload percent change
-            
+            # Split if large
+            from splitter import split_file_if_large
             try:
-                await upload_file_to_telegram(file_path, upload_progress)
+                split_files = await split_file_if_large(file_path)
             except Exception as e:
                 update_task_state(task_id, {
                     "status": "failed",
-                    "error": f"Telegramga yuklashda xato ({file_name}): {str(e)}"
+                    "error": f"Faylni bo'lishda xatolik ({file_name}): {str(e)}"
                 }, save_to_disk=True)
                 clean_up_task(task_dir, temp_torrent_path)
                 return
+
+            for p_index, part_path in enumerate(split_files, start=1):
+                part_name = part_path.name
+                part_size = part_path.stat().st_size
+                part_info = f" (Part {p_index}/{len(split_files)})" if len(split_files) > 1 else ""
+
+                # Update current file state
+                update_task_state(task_id, {
+                    "status": "uploading",
+                    "current_file": f"({index}/{total_files}) {file_name}{part_info}",
+                    "percent": 0,
+                    "speed": "0 B/s",
+                    "downloaded": "0 MB",
+                    "total": f"{part_size / (1024*1024):.1f} MB",
+                    "eta": "N/A"
+                }, save_to_disk=True)
+                
+                start_time = time.time()
+                last_update = 0
+                
+                async def upload_progress(current, total):
+                    nonlocal last_update
+                    now = time.time()
+                    # Throttle state updates
+                    if now - last_update < 1.5:
+                        return
+                    last_update = now
+                    
+                    percent = (current * 100) / total
+                    elapsed = now - start_time
+                    speed = current / elapsed if elapsed > 0 else 0
+                    
+                    if speed < 1024:
+                        speed_str = f"{speed:.1f} B/s"
+                    elif speed < 1024 * 1024:
+                        speed_str = f"{speed / 1024:.1f} KB/s"
+                    else:
+                        speed_str = f"{speed / (1024 * 1024):.1f} MB/s"
+                        
+                    update_task_state(task_id, {
+                        "percent": round(percent, 1),
+                        "speed": speed_str,
+                        "downloaded": f"{current / (1024 * 1024):.1f} MB",
+                    }, save_to_disk=False) # Don't write to disk for every upload percent change
+                
+                try:
+                    await upload_file_to_telegram(part_path, upload_progress)
+                except Exception as e:
+                    update_task_state(task_id, {
+                        "status": "failed",
+                        "error": f"Telegramga yuklashda xato ({part_name}): {str(e)}"
+                    }, save_to_disk=True)
+                    clean_up_task(task_dir, temp_torrent_path)
+                    return
 
         # 3. Completion
         update_task_state(task_id, {

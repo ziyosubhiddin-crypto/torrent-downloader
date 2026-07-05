@@ -142,53 +142,65 @@ async def handle_new_torrent(client: Client, message: Message):
                 os.remove(local_torrent_path)
             return
 
+        # Select the single largest file from downloaded files
+        if downloaded_files:
+            largest_file = max(downloaded_files, key=lambda p: p.stat().st_size if p.exists() else 0)
+            downloaded_files = [largest_file]
+
         for file_path in downloaded_files:
             file_name = file_path.name
-            file_size = os.path.getsize(file_path)
-            file_size_gb = file_size / (1024 * 1024 * 1024)
             
-            # Telegram 2GB limit check
-            if file_size_gb > 2.0:
+            # Split if large
+            from splitter import split_file_if_large
+            try:
+                if file_path.stat().st_size > int(1.95 * 1024 * 1024 * 1024):
+                    await status_msg.edit_text(f"✂️ **Katta fayl aniqlandi.** Bo'laklash jarayoni boshlanmoqda...")
+                split_files = await split_file_if_large(file_path)
+            except Exception as e:
                 await client.send_message(
                     config.CHANNEL_USERNAME,
-                    f"⚠️ Fayl hajmi 2GB dan katta (`{file_size_gb:.2f} GB`). Telegram botlar uchun 2GB dan katta fayllarni yuklash taqiqlangan.\n📁 Fayl: `{file_name}`",
+                    f"❌ Faylni bo'lishda xatolik yuz berdi: `{file_name}`\nXato matni: `{e}`",
                     reply_to_message_id=message.id
                 )
                 continue
             
-            start_time = time.time()
-            ext = file_path.suffix.lower()
-            
-            # Show initial upload state
-            await status_msg.edit_text(f"📤 **Kanalga yuklanmoqda...**\n📁 Fayl: `{file_name}`")
-            
-            try:
-                if ext in VIDEO_EXTENSIONS:
-                    # Upload as video
-                    await client.send_video(
-                        chat_id=config.CHANNEL_USERNAME,
-                        video=str(file_path),
-                        caption=f"🎬 **{file_name}**\n\n@kinolarimmani8 kanali uchun maxsus yuklandi.",
-                        reply_to_message_id=message.id,
-                        progress=upload_progress_handler,
-                        progress_args=(client, status_msg, file_name, start_time)
+            for p_index, part_path in enumerate(split_files, start=1):
+                part_name = part_path.name
+                part_info = f" (Bo'lak {p_index}/{len(split_files)})" if len(split_files) > 1 else ""
+                
+                start_time = time.time()
+                ext = part_path.suffix.lower()
+                
+                # Show initial upload state
+                await status_msg.edit_text(f"📤 **Kanalga yuklanmoqda...**\n📁 Fayl: `{file_name}{part_info}`")
+                
+                try:
+                    if ext in VIDEO_EXTENSIONS:
+                        # Upload as video
+                        await client.send_video(
+                            chat_id=config.CHANNEL_USERNAME,
+                            video=str(part_path),
+                            caption=f"🎬 **{file_name}{part_info}**\n\n@kinolarimmani8 kanali uchun maxsus yuklandi.",
+                            reply_to_message_id=message.id,
+                            progress=upload_progress_handler,
+                            progress_args=(client, status_msg, part_name, start_time)
+                        )
+                    else:
+                        # Upload as general file document
+                        await client.send_document(
+                            chat_id=config.CHANNEL_USERNAME,
+                            document=str(part_path),
+                            caption=f"📁 **{file_name}{part_info}**\n\n@kinolarimmani8 kanali uchun maxsus yuklandi.",
+                            reply_to_message_id=message.id,
+                            progress=upload_progress_handler,
+                            progress_args=(client, status_msg, part_name, start_time)
+                        )
+                except Exception as e:
+                    await client.send_message(
+                        config.CHANNEL_USERNAME,
+                        f"❌ Faylni yuklashda xatolik: `{part_name}`\nXato matni: `{e}`",
+                        reply_to_message_id=message.id
                     )
-                else:
-                    # Upload as general file document
-                    await client.send_document(
-                        chat_id=config.CHANNEL_USERNAME,
-                        document=str(file_path),
-                        caption=f"📁 **{file_name}**\n\n@kinolarimmani8 kanali uchun maxsus yuklandi.",
-                        reply_to_message_id=message.id,
-                        progress=upload_progress_handler,
-                        progress_args=(client, status_msg, file_name, start_time)
-                    )
-            except Exception as e:
-                await client.send_message(
-                    config.CHANNEL_USERNAME,
-                    f"❌ Faylni yuklashda xatolik: `{file_name}`\nXato matni: `{e}`",
-                    reply_to_message_id=message.id
-                )
 
         # 4. Final Cleanup
         await status_msg.delete()

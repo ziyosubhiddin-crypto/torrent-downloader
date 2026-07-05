@@ -3,6 +3,7 @@ FROM python:3.9-slim
 # Install system dependencies (aria2 is required to download torrents)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     aria2 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
