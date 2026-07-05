@@ -46,10 +46,11 @@ def load_tasks_from_file():
         print(f"Error loading tasks: {e}")
         tasks = {}
 
-def update_task_state(task_id: str, updates: dict):
+def update_task_state(task_id: str, updates: dict, save_to_disk: bool = True):
     if task_id in tasks:
         tasks[task_id].update(updates)
-        save_tasks_to_file()
+        if save_to_disk:
+            save_tasks_to_file()
 
 # Load initial tasks list
 load_tasks_from_file()
