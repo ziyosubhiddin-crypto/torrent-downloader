@@ -136,9 +136,14 @@ async def split_file_if_large(file_path: Path) -> list[Path]:
     if file_size <= LIMIT:
         return [file_path]
     
-    # Always split into at least 2 parts
-    parts_count = max(2, math.ceil(file_size / LIMIT))
-    print(f"File {file_path.name} is {file_size / (1024**3):.2f} GB. Splitting into {parts_count} parts.")
+    # Always split into at least 2 parts. Custom logic:
+    # 2GB to 4GB -> 2 parts
+    # 4GB to 6GB -> 3 parts
+    # 6GB to 8GB -> 4 parts
+    # 8GB to 10GB -> 5 parts, etc.
+    size_gb = file_size / (1024 * 1024 * 1024)
+    parts_count = max(2, int(size_gb // 2) + 1)
+    print(f"File {file_path.name} is {size_gb:.2f} GB. Splitting into {parts_count} parts.")
     
     ext = file_path.suffix.lower()
     video_extensions = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv"}

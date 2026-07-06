@@ -142,10 +142,17 @@ async def handle_new_torrent(client: Client, message: Message):
                 os.remove(local_torrent_path)
             return
 
-        # Select the single largest file from downloaded files
+        # Filter files: keep files >= 100MB, or fallback to the single largest file
         if downloaded_files:
-            largest_file = max(downloaded_files, key=lambda p: p.stat().st_size if p.exists() else 0)
-            downloaded_files = [largest_file]
+            large_files = [p for p in downloaded_files if p.exists() and p.stat().st_size >= 100 * 1024 * 1024]
+            if large_files:
+                downloaded_files = large_files
+            else:
+                largest_file = max(downloaded_files, key=lambda p: p.stat().st_size if p.exists() else 0)
+                downloaded_files = [largest_file]
+            
+            # Sort files alphabetically to upload in correct sequence (e.g., Episode 1, Episode 2...)
+            downloaded_files.sort(key=lambda p: p.name)
 
         for file_path in downloaded_files:
             file_name = file_path.name

@@ -140,10 +140,17 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
             clean_up_task(task_dir, temp_torrent_path)
             return
 
-        # Select the single largest file from downloaded files
+        # Filter files: keep files >= 100MB, or fallback to the single largest file
         if downloaded_files:
-            largest_file = max(downloaded_files, key=lambda p: p.stat().st_size if p.exists() else 0)
-            downloaded_files = [largest_file]
+            large_files = [p for p in downloaded_files if p.exists() and p.stat().st_size >= 100 * 1024 * 1024]
+            if large_files:
+                downloaded_files = large_files
+            else:
+                largest_file = max(downloaded_files, key=lambda p: p.stat().st_size if p.exists() else 0)
+                downloaded_files = [largest_file]
+            
+            # Sort files alphabetically to upload in correct sequence (e.g., Episode 1, Episode 2...)
+            downloaded_files.sort(key=lambda p: p.name)
 
         total_files = len(downloaded_files)
         for index, file_path in enumerate(downloaded_files, start=1):
