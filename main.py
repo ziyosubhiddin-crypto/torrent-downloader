@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import config
-from downloader import download_torrent
+from downloader import download_torrent, download_metadata, get_torrent_files, download_single_file
 from telegram_uploader import upload_file_to_telegram, reload_telegram_client
 
 app = FastAPI(title="Torrent Telegram Downloader Web App")
@@ -77,7 +77,7 @@ def clean_up_task(task_dir: Optional[Path], temp_torrent_path: Optional[Path]):
 
 async def run_download_and_upload(task_id: str, torrent_source: str, temp_torrent_path: Optional[Path] = None):
     """
-    Background worker that runs the aria2c download and Telegram upload.
+    Background worker that runs sequential download and Telegram upload.
     """
     print(f"DEBUG: run_download_and_upload started for task_id={task_id}, source={torrent_source}")
     task = tasks.get(task_id)
@@ -87,79 +87,127 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
 
     print(f"DEBUG: Task details: {task}")
     task_dir = None
-    downloaded_files = []
     
     try:
-        # 1. Download phase
-        async for progress in download_torrent(torrent_source):
-            if progress["status"] == "started":
-                task_dir = progress["task_dir"]
-                update_task_state(task_id, {"task_dir": str(task_dir)}, save_to_disk=True)
-                continue
-            elif progress["status"] == "metadata":
-                update_task_state(task_id, {
-                    "status": "metadata",
-                    "speed": progress["speed"],
-                    "downloaded": "0 B",
-                    "total": "0 B",
-                    "percent": 0,
-                    "eta": "N/A"
-                }, save_to_disk=True)
-            elif progress["status"] == "downloading":
-                update_task_state(task_id, {
-                    "status": "downloading",
-                    "percent": progress["percent"],
-                    "speed": progress["speed"],
-                    "downloaded": progress["downloaded"],
-                    "total": progress["total"],
-                    "eta": progress["eta"]
-                }, save_to_disk=False) # Don't write to disk for every 1-second progress bar update
-            elif progress["status"] == "finished":
-                task_dir = progress["task_dir"]
-                downloaded_files = progress["files"]
-                update_task_state(task_id, {
-                    "status": "processing",
-                    "percent": 100,
-                    "speed": "0 B/s",
-                    "eta": "N/A"
-                }, save_to_disk=True)
-            elif progress["status"] == "failed":
-                update_task_state(task_id, {
-                    "status": "failed",
-                    "error": progress["error"]
-                }, save_to_disk=True)
-                clean_up_task(task_dir, temp_torrent_path)
-                return
+        # Create task directory
+        cfg = config.get_config()
+        import uuid
+        task_id_dir = str(uuid.uuid4())[:8]
+        task_dir = cfg["DOWNLOAD_PATH"] / task_id_dir
+        task_dir.mkdir(parents=True, exist_ok=True)
+        update_task_state(task_id, {"task_dir": str(task_dir)}, save_to_disk=True)
 
-        # 2. Upload phase
-        if not downloaded_files:
+        # 1. Download metadata phase
+        update_task_state(task_id, {
+            "status": "metadata",
+            "percent": 0,
+            "speed": "0 B/s",
+            "downloaded": "0 B",
+            "total": "0 B",
+            "eta": "N/A"
+        }, save_to_disk=True)
+
+        try:
+            torrent_path = await download_metadata(torrent_source, task_dir)
+        except Exception as e:
             update_task_state(task_id, {
                 "status": "failed",
-                "error": "Yuklab olingan fayllar topilmadi."
+                "error": f"Metama'lumotlarni yuklab olishda xatolik: {str(e)}"
             }, save_to_disk=True)
             clean_up_task(task_dir, temp_torrent_path)
             return
 
-        # Filter files: keep files >= 100MB, or fallback to the single largest file
-        if downloaded_files:
-            large_files = [p for p in downloaded_files if p.exists() and p.stat().st_size >= 100 * 1024 * 1024]
-            if large_files:
-                downloaded_files = large_files
-            else:
-                largest_file = max(downloaded_files, key=lambda p: p.stat().st_size if p.exists() else 0)
-                downloaded_files = [largest_file]
-            
-            # Sort files alphabetically to upload in correct sequence (e.g., Episode 1, Episode 2...)
-            downloaded_files.sort(key=lambda p: p.name)
+        # 2. Get list of files inside the torrent
+        try:
+            all_files = await get_torrent_files(torrent_path)
+        except Exception as e:
+            update_task_state(task_id, {
+                "status": "failed",
+                "error": f"Torrent fayllarini o'qishda xatolik: {str(e)}"
+            }, save_to_disk=True)
+            clean_up_task(task_dir, temp_torrent_path)
+            return
 
-        total_files = len(downloaded_files)
-        for index, file_path in enumerate(downloaded_files, start=1):
-            file_name = file_path.name
+        # 3. Filter files (>= 100MB or fallback to single largest file)
+        large_files = [f for f in all_files if f["size_bytes"] >= 100 * 1024 * 1024]
+        if large_files:
+            filtered_files = large_files
+        else:
+            # Fallback to the single largest file
+            largest_file = max(all_files, key=lambda f: f["size_bytes"])
+            filtered_files = [largest_file]
+
+        # Sort alphabetically by path to upload in sequence
+        filtered_files.sort(key=lambda f: f["path"])
+        
+        total_files = len(filtered_files)
+        if total_files == 0:
+            update_task_state(task_id, {
+                "status": "failed",
+                "error": "Yuklab olish uchun mos fayllar topilmadi."
+            }, save_to_disk=True)
+            clean_up_task(task_dir, temp_torrent_path)
+            return
+
+        # 4. Sequential loop (Download -> Upload -> Delete)
+        for index, file_info in enumerate(filtered_files, start=1):
+            file_idx = file_info["index"]
+            rel_path = file_info["path"]
+            file_name = Path(rel_path).name
             
+            # Start downloading this file
+            update_task_state(task_id, {
+                "status": "downloading",
+                "current_file": f"({index}/{total_files}) {file_name} (Yuklanmoqda...)",
+                "percent": 0,
+                "speed": "0 B/s",
+                "downloaded": "0 B",
+                "total": file_info["size_str"],
+                "eta": "N/A"
+            }, save_to_disk=True)
+
+            download_success = False
+            async for progress in download_single_file(torrent_path, file_idx, task_dir):
+                if progress.get("status") == "downloading":
+                    update_task_state(task_id, {
+                        "percent": progress["percent"],
+                        "speed": progress["speed"],
+                        "downloaded": progress["downloaded"],
+                        "total": progress["total"],
+                        "eta": progress["eta"]
+                    }, save_to_disk=False)
+                elif progress.get("status") == "failed":
+                    update_task_state(task_id, {
+                        "status": "failed",
+                        "error": f"Faylni yuklab olishda xatolik ({file_name}): {progress['error']}"
+                    }, save_to_disk=True)
+                    clean_up_task(task_dir, temp_torrent_path)
+                    return
+                elif progress.get("status") == "finished":
+                    download_success = True
+
+            if not download_success:
+                update_task_state(task_id, {
+                    "status": "failed",
+                    "error": f"Fayl yuklab olinmadi ({file_name})"
+                }, save_to_disk=True)
+                clean_up_task(task_dir, temp_torrent_path)
+                return
+
+            # File path on local storage
+            local_file_path = task_dir / rel_path
+            if not local_file_path.exists():
+                update_task_state(task_id, {
+                    "status": "failed",
+                    "error": f"Yuklab olingan fayl topilmadi: {rel_path}"
+                }, save_to_disk=True)
+                clean_up_task(task_dir, temp_torrent_path)
+                return
+
             # Split if large
             from splitter import split_file_if_large
             try:
-                split_files = await split_file_if_large(file_path)
+                split_files = await split_file_if_large(local_file_path)
             except Exception as e:
                 update_task_state(task_id, {
                     "status": "failed",
@@ -168,12 +216,12 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
                 clean_up_task(task_dir, temp_torrent_path)
                 return
 
+            # Upload split parts
             for p_index, part_path in enumerate(split_files, start=1):
                 part_name = part_path.name
                 part_size = part_path.stat().st_size
                 part_info = f" (Part {p_index}/{len(split_files)})" if len(split_files) > 1 else ""
 
-                # Update current file state
                 update_task_state(task_id, {
                     "status": "uploading",
                     "current_file": f"({index}/{total_files}) {file_name}{part_info}",
@@ -190,7 +238,6 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
                 async def upload_progress(current, total):
                     nonlocal last_update
                     now = time.time()
-                    # Throttle state updates
                     if now - last_update < 1.5:
                         return
                     last_update = now
@@ -210,8 +257,8 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
                         "percent": round(percent, 1),
                         "speed": speed_str,
                         "downloaded": f"{current / (1024 * 1024):.1f} MB",
-                    }, save_to_disk=False) # Don't write to disk for every upload percent change
-                
+                    }, save_to_disk=False)
+
                 try:
                     await upload_file_to_telegram(part_path, upload_progress)
                 except Exception as e:
@@ -222,7 +269,23 @@ async def run_download_and_upload(task_id: str, torrent_source: str, temp_torren
                     clean_up_task(task_dir, temp_torrent_path)
                     return
 
-        # 3. Completion
+                # Delete split part after successful upload to save disk space
+                try:
+                    if part_path.exists():
+                        print(f"Deleting uploaded part file: {part_path}")
+                        part_path.unlink()
+                except Exception as e:
+                    print(f"Error deleting part file {part_path}: {e}")
+
+            # Just in case local_file_path still exists
+            try:
+                if local_file_path.exists():
+                    print(f"Deleting local file after upload: {local_file_path}")
+                    local_file_path.unlink()
+            except Exception as e:
+                print(f"Error deleting main file {local_file_path}: {e}")
+
+        # 5. Completion
         update_task_state(task_id, {
             "status": "completed",
             "percent": 100,

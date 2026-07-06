@@ -344,7 +344,7 @@ async function refreshTasks() {
                         </div>
                     </div>
                     
-                    ${task.status === 'uploading' && task.current_file ? `
+                    ${task.current_file ? `
                         <div class="task-current-file">Hozirgi: ${task.current_file}</div>
                     ` : ''}
                     
